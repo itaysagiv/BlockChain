@@ -1,6 +1,7 @@
 #include <iostream>
 #include <vector>
 #include <limits>
+#include <chrono>
 
 using namespace std;
 using Satoshi = uint64_t;
@@ -37,6 +38,8 @@ struct Block
 	Block* next;
 };
 
+
+
 class Blockchain
 {
 	//not null
@@ -52,7 +55,61 @@ public:
 
 bool Blockchain::isValid(const Transaction& newTransaction) const
 {
+	// check if transaction ammount is 0
+	if (newTransaction.amount == 0)
+		return false;
 
+	// check if the creation time is in the future
+	auto curr_time_point = std::chrono::system_clock::now();
+	time_t curr_time = std::chrono::system_clock::to_time_t(curr_time_point);
+	if (curr_time - newTransaction.creationTime < 0)
+		return false;
+
+	// check if the sender and the reciever is the same person
+	if (newTransaction.from == newTransaction.to)
+		return false;
+
+	// run across the history of the blockchain to check:
+	// - if the sender have the money for that transaction
+	// - if no transaction with the same signiture was ever made
+	Block* curr_block_ptr = m_firstBlock;
+	Satoshi sender_balance = 0;
+	Address sender = newTransaction.from;
+	while (curr_block_ptr)
+	{
+		// if the sender is the miner of the block add 1000 to his balance
+		if (curr_block_ptr->miner == sender)
+		{
+			sender_balance += MONEY_CREATED_FOR_THE_MINER_EACH_BLOCK;
+		}
+
+		std::vector<Transaction>::iterator trans_iter = curr_block_ptr->trans.begin();
+		for (; trans_iter != curr_block_ptr->trans.end(); trans_iter++)
+		{
+			// if he received money - add the amount to his balance
+			if (trans_iter->to == sender)
+				sender_balance += trans_iter->amount;
+
+			// if he was the miner of the block - add the transaction fee to his balance
+			if (curr_block_ptr->miner == sender)
+				sender_balance += trans_iter->fee;
+
+			// if he was the sender - subtract it from his balance
+			if (trans_iter->from == sender)
+				sender_balance -= (trans_iter->amount + trans_iter->fee);
+
+			// if the signiture is the same - the transaction was already made
+			if (memcmp(trans_iter->signature, newTransaction.signature, SIG_LENGTH) == 0)
+				return false;
+		}
+
+		curr_block_ptr = curr_block_ptr->next;
+	}
+	// check if the sender has enough money for the transaction entire cost
+	if (sender_balance < (newTransaction.amount + newTransaction.fee))
+		return false;
+
+	return true;
 }
 
 int main()
